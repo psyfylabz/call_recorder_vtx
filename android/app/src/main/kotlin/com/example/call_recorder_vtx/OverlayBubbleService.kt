@@ -9,11 +9,14 @@ import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.*
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import java.io.File
 
 class OverlayBubbleService : Service() {
 
@@ -32,22 +35,32 @@ class OverlayBubbleService : Service() {
         getSharedPreferences("bubble_prefs", MODE_PRIVATE)
     }
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val callChecker = object : Runnable {
+        override fun run() {
+            updateLastCallFile()
+            if (isRunning) handler.postDelayed(this, 3000) // ponavljaj na 3s
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                startForegroundServiceProper()
+                startForegroundServiceProper("Bubble overlay running")
                 showBubble()
+                scheduleLastCallCheck()
             }
             ACTION_STOP -> removeBubble()
             else -> {
-                startForegroundServiceProper()
+                startForegroundServiceProper("Bubble overlay running")
                 showBubble()
+                scheduleLastCallCheck()
             }
         }
         return START_STICKY
     }
 
-    private fun startForegroundServiceProper() {
+    private fun startForegroundServiceProper(text: String) {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -60,12 +73,11 @@ class OverlayBubbleService : Service() {
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Call Recorder VTX")
-            .setContentText("Bubble overlay running")
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_mic_idle)
             .setOngoing(true)
             .build()
 
-        // Android 10+ zahteva tip; koristimo mediaPlayback (u manifestu i permission su dodati)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 1,
@@ -75,6 +87,46 @@ class OverlayBubbleService : Service() {
         } else {
             startForeground(1, notification)
         }
+    }
+
+    private fun scheduleLastCallCheck() {
+        handler.postDelayed(callChecker, 3000) // prvi put posle 3s
+    }
+
+    private fun updateLastCallFile() {
+        try {
+            val recDir = File("/storage/emulated/0/Recordings/Call")
+            if (recDir.exists() && recDir.isDirectory) {
+                val lastFile = recDir.listFiles()?.maxByOrNull { it.lastModified() }
+                if (lastFile != null) {
+                    var name = lastFile.nameWithoutExtension
+
+                    if (name.startsWith("Call recording ")) {
+                        name = name.removePrefix("Call recording ").trim()
+                    }
+
+                    val parts = name.split("_")
+                    if (parts.isNotEmpty()) {
+                        val contact = parts[0]
+                        updateNotification("Active call with $contact")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun updateNotification(text: String) {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Call Recorder VTX")
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_mic_recording)
+            .setOngoing(true)
+            .build()
+
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(1, notification)
     }
 
     private fun showBubble() {
@@ -87,7 +139,6 @@ class OverlayBubbleService : Service() {
         val bubbleIcon = bubbleView!!.findViewById<ImageView>(R.id.bubbleIcon)
         bubbleIcon.setImageResource(R.drawable.ic_mic_idle)
 
-        // poslednja pozicija
         val lastX = prefs.getInt("last_x", 200)
         val lastY = prefs.getInt("last_y", 400)
 
@@ -103,7 +154,6 @@ class OverlayBubbleService : Service() {
         params.x = lastX
         params.y = lastY
 
-        // Drag + Tap
         bubbleIcon.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
@@ -137,7 +187,6 @@ class OverlayBubbleService : Service() {
                             isRecording = !isRecording
                             if (isRecording) {
                                 bubbleIcon.setImageResource(R.drawable.ic_mic_recording)
-                                // Toast može biti tih kad je app u pozadini – to je normalno
                                 Toast.makeText(this@OverlayBubbleService, "Recording started", Toast.LENGTH_SHORT).show()
                             } else {
                                 bubbleIcon.setImageResource(R.drawable.ic_mic_idle)
@@ -166,6 +215,7 @@ class OverlayBubbleService : Service() {
             bubbleView = null
             isRunning = false
         }
+        handler.removeCallbacks(callChecker) // stop polling
         stopForeground(true)
         stopSelf()
     }

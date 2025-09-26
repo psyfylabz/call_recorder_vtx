@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'recording_overlay.dart';
 
 void main() {
@@ -57,6 +58,8 @@ class _RecordingsScreenState extends State<RecordingsScreen>
   String _searchQuery = "";
   Recording? _expandedRec;
 
+  bool _serviceEnabled = true; // switch state
+
   final Map<String, List<Recording>> processing = {
     "Friday 19 September 2025": [
       Recording(
@@ -94,22 +97,32 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _requestPermissions();
+    _loadServiceState();
+    _loadServiceState();
   }
 
   Future<void> _requestPermissions() async {
-    // Storage (za starije verzije)
     await Permission.storage.request();
-
-    // Android 13+ media perms
     await Permission.audio.request();
-
-    // Overlay
     if (!await Permission.systemAlertWindow.isGranted) {
       await Permission.systemAlertWindow.request();
     }
-
-    // Phone (READ_PHONE_STATE + READ_CALL_LOG)
     await Permission.phone.request();
+  }
+
+  Future<void> _loadServiceState() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _serviceEnabled = prefs.getBool("service_enabled") ?? true;
+    });
+  }
+
+  Future<void> _saveServiceState(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool("service_enabled", value);
+    setState(() {
+      _serviceEnabled = value;
+    });
   }
 
 
@@ -155,6 +168,47 @@ class _RecordingsScreenState extends State<RecordingsScreen>
               )
             : null,
       ),
+
+      // Drawer meni
+      drawer: Drawer(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Colors.deepOrange),
+              child: Text(
+                "Menu",
+                style: TextStyle(color: Colors.white, fontSize: 22),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bubble_chart),
+              title: const Text("Enable Bubble Service"),
+              trailing: Switch(
+                value: _serviceEnabled,
+                onChanged: (val) async {
+                  setState(() {
+                    _serviceEnabled = val;
+                  });
+                  await _saveServiceState(val);
+                  // 👉 ovde više ne pokrećemo ili gasimo bubble direktno
+                },
+              ),
+            ),
+            const Spacer(),
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text(
+                "Made by cyberp",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ],
+        ),
+      ),
+
+
       body: _isSearching
           ? buildList(results!, isProcessing: true, isSearch: true)
           : TabBarView(
@@ -178,7 +232,6 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     );
   }
 
-  /// Spoji processing i complete u jednu mapu za search
   Map<String, List<Recording>> _searchResults() {
     final combined = <String, List<Recording>>{};
 
