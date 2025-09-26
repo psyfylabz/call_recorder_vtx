@@ -1,0 +1,84 @@
+--- lib/main.dart
++++ lib/main.dart
+@@
+ import 'package:flutter/material.dart';
+ import 'package:call_recorder_vtx/recording_overlay.dart';
+ 
++// Dummy podaci za testiranje pretrage
++final List<Map<String, String>> processingList = [
++  {"phone": "060111222", "date": "2025-09-24"},
++  {"phone": "063333444", "date": "2025-09-23"},
++];
++final List<Map<String, String>> completedList = [
++  {"phone": "064555666", "date": "2025-09-22"},
++  {"phone": "065777888", "date": "2025-09-21"},
++];
++
+ void main() {
+   runApp(const CallRecorderApp());
+ }
+@@
+ class _HomePageState extends State<HomePage> {
+   int _selectedIndex = 0;
+-
+-  final List<Widget> _pages = const [
+-    Center(child: Text("Processing list here")),
+-    Center(child: Text("Completed list here")),
+-  ];
++
++  String _searchQuery = "";
+ 
+   void _onNavTap(int index) {
+     setState(() {
+@@
+   }
++
++  List<Map<String, String>> _filterList(List<Map<String, String>> source) {
++    if (_searchQuery.isEmpty) return source;
++    return source
++        .where((item) => item["phone"]!.contains(_searchQuery))
++        .toList();
++  }
+ 
+   @override
+   Widget build(BuildContext context) {
+@@
+     return Scaffold(
+-      appBar: AppBar(title: const Text("Call Recorder VTX")),
+-      body: _pages[_selectedIndex],
++      appBar: AppBar(
++        title: TextField(
++          decoration: const InputDecoration(
++            hintText: "Search by phone...",
++            border: InputBorder.none,
++          ),
++          onChanged: (value) {
++            setState(() {
++              _searchQuery = value;
++            });
++          },
++        ),
++      ),
++      body: _selectedIndex == 0
++          ? _buildList("Processing", _filterList(processingList))
++          : _buildList("Completed", _filterList(completedList)),
+@@
+   }
++
++  Widget _buildList(String title, List<Map<String, String>> data) {
++    if (data.isEmpty) {
++      return Center(child: Text("No results in $title"));
++    }
++    return ListView.builder(
++      itemCount: data.length,
++      itemBuilder: (context, index) {
++        final item = data[index];
++        return ListTile(
++          title: Text(item["phone"]!),
++          subtitle: Text(item["date"]!),
++        );
++      },
++    );
++  }
+ }
+
