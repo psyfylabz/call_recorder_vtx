@@ -43,7 +43,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
   String _searchQuery = "";
   Recording? _expandedRec;
 
-  bool _serviceEnabled = true; // switch state
+  bool _serviceEnabled = true;
 
   List<Recording> allRecordings = [];
 
@@ -86,9 +86,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
   Future<void> _loadRecordings() async {
     const folderPath = "/storage/emulated/0/Recordings/VTX Files/Data/";
     final dir = Directory(folderPath);
-    if (!await dir.exists()) {
-      return;
-    }
+    if (!await dir.exists()) return;
 
     final files = dir
         .listSync()
@@ -107,18 +105,17 @@ class _RecordingsScreenState extends State<RecordingsScreen>
       }
     }
 
+    // sortiranje: prvo po datumu, pa po id (da bude najnovije gore)
     recordings.sort((a, b) {
-      final aTs = DateTime.tryParse("${a.date}T${a.callTime}") ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      final bTs = DateTime.tryParse("${b.date}T${b.callTime}") ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      return bTs.compareTo(aTs); // najnovije prvo
+      final aKey = "${a.date}_${a.id}";
+      final bKey = "${b.date}_${b.id}";
+      return bKey.compareTo(aKey);
     });
 
-        setState(() {
-          allRecordings = recordings;
-        });
-      }
+    setState(() {
+      allRecordings = recordings;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -135,9 +132,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                 ),
                 style: const TextStyle(color: Colors.white, fontSize: 18),
                 onChanged: (val) {
-                  setState(() {
-                    _searchQuery = val.toLowerCase();
-                  });
+                  setState(() => _searchQuery = val.toLowerCase());
                 },
               )
             : const Text("Call Recorder VTX"),
@@ -154,7 +149,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadRecordings,
-          )
+          ),
         ],
         bottom: !_isSearching
             ? TabBar(
@@ -173,10 +168,8 @@ class _RecordingsScreenState extends State<RecordingsScreen>
           children: [
             const DrawerHeader(
               decoration: BoxDecoration(color: Colors.deepOrange),
-              child: Text(
-                "Menu",
-                style: TextStyle(color: Colors.white, fontSize: 22),
-              ),
+              child: Text("Menu",
+                  style: TextStyle(color: Colors.white, fontSize: 22)),
             ),
             ListTile(
               leading: const Icon(Icons.bubble_chart),
@@ -184,9 +177,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
               trailing: Switch(
                 value: _serviceEnabled,
                 onChanged: (val) async {
-                  setState(() {
-                    _serviceEnabled = val;
-                  });
+                  setState(() => _serviceEnabled = val);
                   await _saveServiceState(val);
                 },
               ),
@@ -194,11 +185,9 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             const Spacer(),
             const Padding(
               padding: EdgeInsets.all(8.0),
-              child: Text(
-                "Made by cyberp",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
+              child: Text("Made by cyberp",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey)),
             ),
           ],
         ),
@@ -238,15 +227,14 @@ class _RecordingsScreenState extends State<RecordingsScreen>
 
     return allRecordings.where((rec) {
       final searchIn = [
-        rec.number.toLowerCase(),
+        rec.title.toLowerCase(),
         rec.notes?.toLowerCase() ?? ""
       ];
       return searchIn.any((field) => field.contains(query));
     }).toList();
   }
 
-  Widget buildList(List<Recording> recordings,
-      {bool isSearch = false}) {
+  Widget buildList(List<Recording> recordings, {bool isSearch = false}) {
     final pinnedItems = recordings.where((r) => r.pinned).toList();
     final others = recordings.where((r) => !r.pinned).toList();
 
@@ -267,14 +255,11 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                 style: TextStyle(
                     fontWeight: FontWeight.bold, color: Colors.orange)),
           ),
-          ...pinnedItems.map((rec) =>
-              _buildItem(rec, rec.date, recordings)),
+          ...pinnedItems.map((rec) => _buildItem(rec, rec.date, recordings)),
         ],
-
         ...grouped.entries.map((entry) {
           final date = entry.key;
           final items = entry.value;
-
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -305,10 +290,8 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             rec.expanded ? Icons.pause_circle : Icons.play_circle_fill,
             color: isProcessing ? Colors.green : Colors.orange,
           ),
-          title: Text("${rec.number} (${rec.callTime})"),
-          subtitle: Text(
-            rec.notes != null ? "Notes: ${rec.notes}" : "",
-          ),
+          title: Text(rec.title),
+          subtitle: Text(rec.notes != null ? "Notes: ${rec.notes}" : ""),
           trailing: PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.grey),
             onSelected: (value) {
@@ -336,24 +319,15 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                 value: rec.pinned ? "unpin" : "pin",
                 child: Text(rec.pinned ? "Unpin this" : "Pin this"),
               ),
-              const PopupMenuItem(
-                value: "delete",
-                child: Text("Delete"),
-              ),
-              const PopupMenuItem(
-                value: "add_notes",
-                child: Text("Add notes"),
-              ),
+              const PopupMenuItem(value: "delete", child: Text("Delete")),
+              const PopupMenuItem(value: "add_notes", child: Text("Add notes")),
               if (isProcessing)
                 const PopupMenuItem(
                   value: "move_to_complete",
                   child: Text("Move to Complete"),
                 )
               else
-                const PopupMenuItem(
-                  value: "restore",
-                  child: Text("Restore"),
-                ),
+                const PopupMenuItem(value: "restore", child: Text("Restore")),
             ],
           ),
           onTap: () {
@@ -369,11 +343,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             });
           },
           onLongPress: isProcessing
-              ? () {
-                  setState(() {
-                    rec.showDone = !rec.showDone;
-                  });
-                }
+              ? () => setState(() => rec.showDone = !rec.showDone)
               : null,
         ),
         if (rec.expanded)
@@ -381,11 +351,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: RecordingPlayer(rec: rec),
           ),
-        const Divider(
-          thickness: 0.5,
-          height: 1,
-          color: Colors.grey,
-        ),
+        const Divider(thickness: 0.5, height: 1, color: Colors.grey),
       ],
     );
   }
@@ -405,9 +371,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             ),
             TextButton(
               onPressed: () {
-                setState(() {
-                  rec.notes = controller.text;
-                });
+                setState(() => rec.notes = controller.text);
                 File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json")
                     .writeAsStringSync(jsonEncode(rec.toJson()));
                 Navigator.pop(context);

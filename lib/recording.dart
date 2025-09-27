@@ -1,24 +1,23 @@
 class Recording {
   final String id;
-  String number;       // broj telefona
-  String callTime;     // vreme poziva (HH:mm:ss)
-  String date;         // YYYY-MM-DD
-  String path;
-  String status;       // "processing" | "complete"
+  String title; // broj telefona ili ime
+  String date;  // yyyy-MM-dd
+  String path;  // putanja do snimka
+  String status; // "processing" | "complete"
   bool pinned;
   String? notes;
 
-  int highlightOffset; // u sekundama od početka snimka
-  int highlightLength; // trajanje highlight segmenta u sekundama
+  /// Highlight meta – čuvamo offset i dužinu u sekundama
+  int highlightOffset;
+  int highlightLength;
 
-  // UI state
+  // UI state (nije deo JSON-a)
   bool expanded;
   bool showDone;
 
   Recording({
     required this.id,
-    required this.number,
-    required this.callTime,
+    required this.title,
     required this.date,
     required this.path,
     required this.status,
@@ -31,34 +30,40 @@ class Recording {
   });
 
   factory Recording.fromJson(Map<String, dynamic> json) {
+    final highlighted = json["highlighted"] ?? {};
     return Recording(
       id: json["id"],
-      number: json["number"] ?? "",
-      callTime: json["callTime"] ?? "",
+      title: json["title"],
       date: json["date"],
       path: json["path"],
       status: json["status"],
       pinned: json["pinned"] ?? false,
       notes: json["notes"],
-      highlightOffset: json["highlight"]["offset"] ?? 0,
-      highlightLength: json["highlight"]["length"] ?? 0,
+      highlightOffset: highlighted["offset"] ?? 0,
+      highlightLength: highlighted["length"] ?? 0,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       "id": id,
-      "number": number,
-      "callTime": callTime,
+      "title": title,
       "date": date,
       "path": path,
       "status": status,
       "pinned": pinned,
       "notes": notes,
-      "highlight": {
+      "highlighted": {
         "offset": highlightOffset,
         "length": highlightLength,
       },
     };
   }
+
+  /// Izračunaj highlight start kao Duration
+  Duration get highlightStart => Duration(seconds: highlightOffset);
+
+  /// Izračunaj highlight end kao Duration
+  Duration get highlightEnd =>
+      Duration(seconds: highlightOffset + highlightLength);
 }
