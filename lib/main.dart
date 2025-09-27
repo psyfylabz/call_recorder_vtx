@@ -8,7 +8,6 @@ import 'recording_overlay.dart';
 import 'recording.dart';
 import 'recording_player.dart';
 
-
 void main() {
   runApp(const CallRecorderApp());
 }
@@ -67,7 +66,6 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     if (await Permission.manageExternalStorage.isDenied) {
       await Permission.manageExternalStorage.request();
     }
-
   }
 
   Future<void> _loadServiceState() async {
@@ -109,12 +107,18 @@ class _RecordingsScreenState extends State<RecordingsScreen>
       }
     }
 
-    recordings.sort((a, b) => b.highlightStart.compareTo(a.highlightStart));
-
-    setState(() {
-      allRecordings = recordings;
+    recordings.sort((a, b) {
+      final aTs = DateTime.tryParse("${a.date}T${a.callTime}") ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bTs = DateTime.tryParse("${b.date}T${b.callTime}") ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bTs.compareTo(aTs); // najnovije prvo
     });
-  }
+
+        setState(() {
+          allRecordings = recordings;
+        });
+      }
 
   @override
   Widget build(BuildContext context) {
@@ -229,12 +233,15 @@ class _RecordingsScreenState extends State<RecordingsScreen>
   }
 
   List<Recording> _searchResults() {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return allRecordings;
+
     return allRecordings.where((rec) {
       final searchIn = [
-        rec.title.toLowerCase(),
+        rec.number.toLowerCase(),
         rec.notes?.toLowerCase() ?? ""
       ];
-      return searchIn.any((field) => field.contains(_searchQuery));
+      return searchIn.any((field) => field.contains(query));
     }).toList();
   }
 
@@ -298,10 +305,9 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             rec.expanded ? Icons.pause_circle : Icons.play_circle_fill,
             color: isProcessing ? Colors.green : Colors.orange,
           ),
-          title: Text(rec.title),
+          title: Text("${rec.number} (${rec.callTime})"),
           subtitle: Text(
-            "Duration: ${rec.duration}"
-            "${rec.notes != null ? "\nNotes: ${rec.notes}" : ""}",
+            rec.notes != null ? "Notes: ${rec.notes}" : "",
           ),
           trailing: PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.grey),
@@ -321,7 +327,6 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                 } else if (value == "restore") {
                   rec.status = "processing";
                 }
-                // snimi nazad JSON
                 File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json")
                     .writeAsStringSync(jsonEncode(rec.toJson()));
               });
@@ -376,14 +381,14 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: RecordingPlayer(rec: rec),
           ),
-                const Divider(
-                  thickness: 0.5,
-                  height: 1,
-                  color: Colors.grey,
-                ),
-              ],
-            );
-          }
+        const Divider(
+          thickness: 0.5,
+          height: 1,
+          color: Colors.grey,
+        ),
+      ],
+    );
+  }
 
   void _showNotesDialog(Recording rec) {
     final controller = TextEditingController(text: rec.notes ?? "");

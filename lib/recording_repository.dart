@@ -1,49 +1,65 @@
-import 'dart:convert';
-import 'dart:io';
-import 'recording.dart';
+class Recording {
+  final String id;
+  String title;
+  String date;
+  String path;
+  String status; // "processing" | "complete"
+  bool pinned;
+  String? notes;
 
-class RecordingRepository {
-  final String dataDir =
-      "/storage/emulated/0/Recordings/VTX Files/Data"; // folder gde su json fajlovi
+  // highlight u sekundama
+  int highlightOffset; // u sekundama od početka fajla
+  int highlightLength; // trajanje segmenta u sekundama
 
-  Future<List<Recording>> loadAll() async {
-    final dir = Directory(dataDir);
-    if (!await dir.exists()) {
-      return [];
-    }
+  // UI state
+  bool expanded;
+  bool showDone;
 
-    final files = dir
-        .listSync()
-        .where((f) => f is File && f.path.endsWith(".json"))
-        .map((f) => File(f.path));
+  Recording({
+    required this.id,
+    required this.title,
+    required this.date,
+    required this.path,
+    required this.status,
+    required this.pinned,
+    this.notes,
+    required this.highlightOffset,
+    required this.highlightLength,
+    this.expanded = false,
+    this.showDone = false,
+  });
 
-    final recordings = <Recording>[];
+  Duration get highlightStart => Duration(seconds: highlightOffset);
+  Duration get highlightEnd =>
+      Duration(seconds: highlightOffset + highlightLength);
 
-    for (var file in files) {
-      try {
-        final content = await file.readAsString();
-        final data = jsonDecode(content);
-        recordings.add(Recording.fromJson(data));
-      } catch (e) {
-        print("❌ Failed to parse ${file.path}: $e");
-      }
-    }
-
-    // sort by date + time (koristimo highlightStart)
-    recordings.sort((a, b) => b.highlightStart.compareTo(a.highlightStart));
-
-    return recordings;
+  factory Recording.fromJson(Map<String, dynamic> json) {
+    return Recording(
+      id: json["id"],
+      title: json["title"],
+      date: json["date"],
+      path: json["path"],
+      status: json["status"],
+      pinned: json["pinned"] ?? false,
+      notes: json["notes"],
+      highlightOffset: json["highlight"]["offset"] ?? 0,
+      highlightLength: json["highlight"]["length"] ?? 0,
+    );
   }
 
-  Future<void> save(Recording rec) async {
-    final file = File("$dataDir/${rec.id}.json");
-    await file.writeAsString(jsonEncode(rec.toJson()));
-  }
-
-  Future<void> delete(Recording rec) async {
-    final file = File("$dataDir/${rec.id}.json");
-    if (await file.exists()) {
-      await file.delete();
-    }
+  Map<String, dynamic> toJson() {
+    return {
+      "id": id,
+      "title": title,
+      "date": date,
+      "path": path,
+      "status": status,
+      "pinned": pinned,
+      "notes": notes,
+      "highlight": {
+        "offset": highlightOffset,
+        "length": highlightLength,
+      },
+    };
   }
 }
