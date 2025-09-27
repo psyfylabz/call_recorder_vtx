@@ -1,7 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'recording_overlay.dart';
+import 'recording.dart';
+import 'recording_player.dart';
+
 
 void main() {
   runApp(const CallRecorderApp());
@@ -23,28 +29,6 @@ class CallRecorderApp extends StatelessWidget {
   }
 }
 
-class Recording {
-  final String title;
-  final String date;
-  final String duration;
-  bool expanded;
-  bool showDone;
-  String? notes;
-  bool fromProcessing;
-  bool pinned; // 🔹 dodato
-
-  Recording({
-    required this.title,
-    required this.date,
-    required this.duration,
-    this.expanded = false,
-    this.showDone = false,
-    this.notes,
-    this.fromProcessing = true,
-    this.pinned = false, // 🔹 default false
-  });
-}
-
 class RecordingsScreen extends StatefulWidget {
   const RecordingsScreen({super.key});
 
@@ -62,37 +46,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
 
   bool _serviceEnabled = true; // switch state
 
-  final Map<String, List<Recording>> processing = {
-    "Friday 19 September 2025": [
-      Recording(
-          title: "Call with +381691123055",
-          date: "2025-09-19",
-          duration: "01:10",
-          fromProcessing: true),
-      Recording(
-          title: "Call with +381601234567",
-          date: "2025-09-19",
-          duration: "02:43",
-          fromProcessing: true),
-    ],
-    "Thursday 18 September 2025": [
-      Recording(
-          title: "Voice Note (Reminder)",
-          date: "2025-09-18",
-          duration: "00:30",
-          fromProcessing: true),
-    ],
-  };
-
-  final Map<String, List<Recording>> complete = {
-    "Wednesday 17 September 2025": [
-      Recording(
-          title: "Call with +381621234567",
-          date: "2025-09-17",
-          duration: "01:45",
-          fromProcessing: false),
-    ],
-  };
+  List<Recording> allRecordings = [];
 
   @override
   void initState() {
@@ -100,7 +54,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     _tabController = TabController(length: 2, vsync: this);
     _requestPermissions();
     _loadServiceState();
-    _loadServiceState();
+    _loadRecordings();
   }
 
   Future<void> _requestPermissions() async {
@@ -110,6 +64,10 @@ class _RecordingsScreenState extends State<RecordingsScreen>
       await Permission.systemAlertWindow.request();
     }
     await Permission.phone.request();
+    if (await Permission.manageExternalStorage.isDenied) {
+      await Permission.manageExternalStorage.request();
+    }
+
   }
 
   Future<void> _loadServiceState() async {
@@ -127,10 +85,40 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     });
   }
 
+  Future<void> _loadRecordings() async {
+    const folderPath = "/storage/emulated/0/Recordings/VTX Files/Data/";
+    final dir = Directory(folderPath);
+    if (!await dir.exists()) {
+      return;
+    }
+
+    final files = dir
+        .listSync()
+        .where((f) => f is File && f.path.endsWith(".json"))
+        .map((f) => File(f.path));
+
+    final recordings = <Recording>[];
+
+    for (var file in files) {
+      try {
+        final content = await file.readAsString();
+        final data = jsonDecode(content);
+        recordings.add(Recording.fromJson(data));
+      } catch (e) {
+        debugPrint("❌ Failed to parse ${file.path}: $e");
+      }
+    }
+
+    recordings.sort((a, b) => b.highlightStart.compareTo(a.highlightStart));
+
+    setState(() {
+      allRecordings = recordings;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final results = _isSearching ? _searchResults() : null;
+    final results = _isSearching ? _searchResults() : allRecordings;
 
     return Scaffold(
       appBar: AppBar(
@@ -159,6 +147,10 @@ class _RecordingsScreenState extends State<RecordingsScreen>
               });
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadRecordings,
+          )
         ],
         bottom: !_isSearching
             ? TabBar(
@@ -171,7 +163,6 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             : null,
       ),
 
-      // Drawer meni
       drawer: Drawer(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -193,7 +184,6 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                     _serviceEnabled = val;
                   });
                   await _saveServiceState(val);
-                  // 👉 ovde više ne pokrećemo ili gasimo bubble direktno
                 },
               ),
             ),
@@ -210,16 +200,20 @@ class _RecordingsScreenState extends State<RecordingsScreen>
         ),
       ),
 
-
       body: _isSearching
-          ? buildList(results!, isProcessing: true, isSearch: true)
+          ? buildList(results, isSearch: true)
           : TabBarView(
               controller: _tabController,
               children: [
-                buildList(processing, isProcessing: true),
-                buildList(complete, isProcessing: false),
+                buildList(allRecordings
+                    .where((r) => r.status == "processing")
+                    .toList()),
+                buildList(allRecordings
+                    .where((r) => r.status == "complete")
+                    .toList()),
               ],
             ),
+
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.green,
         onPressed: () async {
@@ -234,40 +228,25 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     );
   }
 
-  Map<String, List<Recording>> _searchResults() {
-    final combined = <String, List<Recording>>{};
-
-    void addItems(Map<String, List<Recording>> source) {
-      for (var entry in source.entries) {
-        final matches = entry.value.where((rec) {
-          final searchIn = [
-            rec.title.toLowerCase(),
-            rec.notes?.toLowerCase() ?? ""
-          ];
-          return searchIn.any((field) => field.contains(_searchQuery));
-        }).toList();
-
-        if (matches.isNotEmpty) {
-          combined.putIfAbsent(entry.key, () => []);
-          combined[entry.key]!.addAll(matches);
-        }
-      }
-    }
-
-    addItems(processing);
-    addItems(complete);
-
-    return combined;
+  List<Recording> _searchResults() {
+    return allRecordings.where((rec) {
+      final searchIn = [
+        rec.title.toLowerCase(),
+        rec.notes?.toLowerCase() ?? ""
+      ];
+      return searchIn.any((field) => field.contains(_searchQuery));
+    }).toList();
   }
 
-  Widget buildList(Map<String, List<Recording>> grouped,
-      {required bool isProcessing, bool isSearch = false}) {
-    // 🔹 prvo odvajamo pinovane
-    final pinnedItems = <Recording>[];
-    for (var entry in grouped.entries) {
-      for (var rec in entry.value) {
-        if (rec.pinned) pinnedItems.add(rec);
-      }
+  Widget buildList(List<Recording> recordings,
+      {bool isSearch = false}) {
+    final pinnedItems = recordings.where((r) => r.pinned).toList();
+    final others = recordings.where((r) => !r.pinned).toList();
+
+    Map<String, List<Recording>> grouped = {};
+    for (var rec in others) {
+      grouped.putIfAbsent(rec.date, () => []);
+      grouped[rec.date]!.add(rec);
     }
 
     return ListView(
@@ -282,16 +261,12 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                     fontWeight: FontWeight.bold, color: Colors.orange)),
           ),
           ...pinnedItems.map((rec) =>
-            _buildItem(rec, rec.date, grouped[rec.date] ?? [], isProcessing)),
+              _buildItem(rec, rec.date, recordings)),
         ],
 
-        // ostatak grupe
-        ...grouped.entries
-            .where((entry) =>
-                entry.value.any((rec) => !rec.pinned)) // skip pinovane
-            .map((entry) {
+        ...grouped.entries.map((entry) {
           final date = entry.key;
-          final items = entry.value.where((r) => !r.pinned).toList();
+          final items = entry.value;
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,12 +274,13 @@ class _RecordingsScreenState extends State<RecordingsScreen>
               Container(
                 color: Colors.grey[900],
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Text(date,
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, color: Colors.grey)),
               ),
-              ...items.map((rec) => _buildItem(rec, date, entry.value, isProcessing)),
+              ...items.map((rec) => _buildItem(rec, date, recordings)),
             ],
           );
         }).toList(),
@@ -312,8 +288,9 @@ class _RecordingsScreenState extends State<RecordingsScreen>
     );
   }
 
-  Widget _buildItem(
-      Recording rec, String date, List<Recording> items, bool isProcessing) {
+  Widget _buildItem(Recording rec, String date, List<Recording> items) {
+    final isProcessing = rec.status == "processing";
+
     return Column(
       children: [
         ListTile(
@@ -326,102 +303,54 @@ class _RecordingsScreenState extends State<RecordingsScreen>
             "Duration: ${rec.duration}"
             "${rec.notes != null ? "\nNotes: ${rec.notes}" : ""}",
           ),
-          trailing: isProcessing
-              ? (rec.showDone
-                  ? GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          complete.putIfAbsent(date, () => []);
-                          complete[date]!.add(rec..fromProcessing = false);
-                          items.remove(rec);
-                          rec.showDone = false;
-                        });
-                      },
-                      child: Container(
-                        width: 48,
-                        height: double.infinity,
-                        color: Colors.green.withOpacity(0.2),
-                        child: const Icon(Icons.check,
-                            color: Colors.green, size: 28),
-                      ),
-                    )
-                  : PopupMenuButton<String>(
-                      icon: const Icon(Icons.more_vert, color: Colors.grey),
-                      onSelected: (value) {
-                        setState(() {
-                          if (value == "pin") {
-                            rec.pinned = true;
-                          } else if (value == "unpin") {
-                            rec.pinned = false;
-                          } else if (value == "delete") {
-                            items.remove(rec);
-                          } else if (value == "add_notes") {
-                            _showNotesDialog(rec);
-                          } else if (value == "move_to_complete") {
-                            complete.putIfAbsent(date, () => []);
-                            complete[date]!.add(rec..fromProcessing = false);
-                            items.remove(rec);
-                          }
-                        });
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: rec.pinned ? "unpin" : "pin",
-                          child: Text(rec.pinned ? "Unpin this" : "Pin this"),
-                        ),
-                        const PopupMenuItem(
-                          value: "delete",
-                          child: Text("Delete"),
-                        ),
-                        const PopupMenuItem(
-                          value: "add_notes",
-                          child: Text("Add notes"),
-                        ),
-                        const PopupMenuItem(
-                          value: "move_to_complete",
-                          child: Text("Move to Complete"),
-                        ),
-                      ],
-                    )
-                  )
-              : PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.grey),
-                  onSelected: (value) {
-                    setState(() {
-                      if (value == "pin") {
-                        rec.pinned = true;
-                      } else if (value == "unpin") {
-                        rec.pinned = false;
-                      } else if (value == "delete") {
-                        items.remove(rec);
-                      } else if (value == "add_notes") {
-                        _showNotesDialog(rec);
-                      } else if (value == "restore") {
-                        processing.putIfAbsent(date, () => []);
-                        processing[date]!.add(rec..fromProcessing = true);
-                        items.remove(rec);
-                      }
-                    });
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: rec.pinned ? "unpin" : "pin",
-                      child: Text(rec.pinned ? "Unpin this" : "Pin this"),
-                    ),
-                    const PopupMenuItem(
-                      value: "delete",
-                      child: Text("Delete"),
-                    ),
-                    const PopupMenuItem(
-                      value: "add_notes",
-                      child: Text("Add notes"),
-                    ),
-                    const PopupMenuItem(
-                      value: "restore",
-                      child: Text("Restore"),
-                    ),
-                  ],
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.grey),
+            onSelected: (value) {
+              setState(() {
+                if (value == "pin") {
+                  rec.pinned = true;
+                } else if (value == "unpin") {
+                  rec.pinned = false;
+                } else if (value == "delete") {
+                  items.remove(rec);
+                  File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json").delete();
+                } else if (value == "add_notes") {
+                  _showNotesDialog(rec);
+                } else if (value == "move_to_complete") {
+                  rec.status = "complete";
+                } else if (value == "restore") {
+                  rec.status = "processing";
+                }
+                // snimi nazad JSON
+                File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json")
+                    .writeAsStringSync(jsonEncode(rec.toJson()));
+              });
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: rec.pinned ? "unpin" : "pin",
+                child: Text(rec.pinned ? "Unpin this" : "Pin this"),
+              ),
+              const PopupMenuItem(
+                value: "delete",
+                child: Text("Delete"),
+              ),
+              const PopupMenuItem(
+                value: "add_notes",
+                child: Text("Add notes"),
+              ),
+              if (isProcessing)
+                const PopupMenuItem(
+                  value: "move_to_complete",
+                  child: Text("Move to Complete"),
+                )
+              else
+                const PopupMenuItem(
+                  value: "restore",
+                  child: Text("Restore"),
                 ),
+            ],
+          ),
           onTap: () {
             setState(() {
               if (_expandedRec == rec) {
@@ -456,8 +385,7 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                     });
                   },
                 ),
-                const Text("Player controls here...",
-                    style: TextStyle(color: Colors.grey)),
+               RecordingPlayer(rec: rec),
               ],
             ),
           ),
@@ -488,6 +416,8 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                 setState(() {
                   rec.notes = controller.text;
                 });
+                File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json")
+                    .writeAsStringSync(jsonEncode(rec.toJson()));
                 Navigator.pop(context);
               },
               child: const Text("Save"),

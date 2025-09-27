@@ -1,9 +1,6 @@
 package com.example.call_recorder_vtx
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
+import android.app.*
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
@@ -23,6 +20,7 @@ class OverlayBubbleService : Service() {
     companion object {
         const val ACTION_START = "start_overlay"
         const val ACTION_STOP = "stop_overlay"
+        const val ACTION_TOGGLE_RECORD = "toggle_record"
         private const val CHANNEL_ID = "overlay_channel"
         var isRunning = false
     }
@@ -30,17 +28,10 @@ class OverlayBubbleService : Service() {
     private lateinit var windowManager: WindowManager
     private var bubbleView: View? = null
     private var isRecording = false
+    private var currentContact: String = "Unknown" // 👈 trenutno aktivni kontakt/broj
 
     private val prefs: SharedPreferences by lazy {
         getSharedPreferences("bubble_prefs", MODE_PRIVATE)
-    }
-
-    private val handler = Handler(Looper.getMainLooper())
-    private val callChecker = object : Runnable {
-        override fun run() {
-            updateLastCallFile()
-            if (isRunning) handler.postDelayed(this, 3000) // ponavljaj na 3s
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -51,6 +42,7 @@ class OverlayBubbleService : Service() {
                 scheduleLastCallCheck()
             }
             ACTION_STOP -> removeBubble()
+            ACTION_TOGGLE_RECORD -> toggleRecording()
             else -> {
                 startForegroundServiceProper("Bubble overlay running")
                 showBubble()
@@ -66,16 +58,41 @@ class OverlayBubbleService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Overlay Bubble",
-                NotificationManager.IMPORTANCE_LOW
-            )
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC  // 👈 forsiraj vidljivost na lock screenu
+            }
             manager.createNotificationChannel(channel)
         }
+
+        val toggleIntent = Intent(this, OverlayBubbleService::class.java).apply {
+            action = ACTION_TOGGLE_RECORD
+        }
+        val togglePending = PendingIntent.getService(
+            this, 0, toggleIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val mainIntent = Intent(this, MainActivity::class.java)
+        val mainPending = PendingIntent.getActivity(
+            this, 0, mainIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Call Recorder VTX")
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_mic_idle)
+            .setSmallIcon(if (isRecording) R.drawable.ic_mic_recording else R.drawable.ic_mic_idle)
             .setOngoing(true)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .addAction(
+                if (isRecording) R.drawable.ic_mic_idle else R.drawable.ic_mic_recording,
+                if (isRecording) "Stop" else "Start",
+                togglePending
+            )
+            .setContentIntent(mainPending)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -89,44 +106,83 @@ class OverlayBubbleService : Service() {
         }
     }
 
-    private fun scheduleLastCallCheck() {
-        handler.postDelayed(callChecker, 3000) // prvi put posle 3s
-    }
+    private fun updateNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
 
-    private fun updateLastCallFile() {
-        try {
-            val recDir = File("/storage/emulated/0/Recordings/Call")
-            if (recDir.exists() && recDir.isDirectory) {
-                val lastFile = recDir.listFiles()?.maxByOrNull { it.lastModified() }
-                if (lastFile != null) {
-                    var name = lastFile.nameWithoutExtension
-
-                    if (name.startsWith("Call recording ")) {
-                        name = name.removePrefix("Call recording ").trim()
-                    }
-
-                    val parts = name.split("_")
-                    if (parts.isNotEmpty()) {
-                        val contact = parts[0]
-                        updateNotification("Active call with $contact")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val toggleIntent = Intent(this, OverlayBubbleService::class.java).apply {
+            action = ACTION_TOGGLE_RECORD
         }
-    }
+        val togglePending = PendingIntent.getService(
+            this, 0, toggleIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-    private fun updateNotification(text: String) {
+        val mainIntent = Intent(this, MainActivity::class.java)
+        val mainPending = PendingIntent.getActivity(
+            this, 0, mainIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val statusText = if (isRecording) {
+            "Recording call with $currentContact"
+        } else {
+            "Active call with $currentContact"
+        }
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Call Recorder VTX")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_mic_recording)
+            .setContentText(statusText)
+            .setSmallIcon(if (isRecording) R.drawable.ic_mic_recording else R.drawable.ic_mic_idle)
             .setOngoing(true)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(statusText))
+            .addAction(
+                if (isRecording) R.drawable.ic_mic_idle else R.drawable.ic_mic_recording,
+                if (isRecording) "Stop" else "Start",
+                togglePending
+            )
+            .setContentIntent(mainPending)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
-        val manager = getSystemService(NotificationManager::class.java)
         manager.notify(1, notification)
+    }
+
+    private fun toggleRecording() {
+        isRecording = !isRecording
+        val bubbleIcon = bubbleView?.findViewById<ImageView>(R.id.bubbleIcon)
+        if (isRecording) {
+            bubbleIcon?.setImageResource(R.drawable.ic_mic_recording)
+            Toast.makeText(this, "Recording started", Toast.LENGTH_SHORT).show()
+        } else {
+            bubbleIcon?.setImageResource(R.drawable.ic_mic_idle)
+            Toast.makeText(this, "Recording stopped", Toast.LENGTH_SHORT).show()
+        }
+        updateNotification()
+    }
+
+    private fun scheduleLastCallCheck() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                val recDir = File("/storage/emulated/0/Recordings/Call")
+                if (recDir.exists() && recDir.isDirectory) {
+                    val lastFile = recDir.listFiles()?.maxByOrNull { it.lastModified() }
+                    if (lastFile != null) {
+                        var name = lastFile.nameWithoutExtension
+                        if (name.startsWith("Call recording ")) {
+                            name = name.removePrefix("Call recording ").trim()
+                        }
+                        val parts = name.split("_")
+                        if (parts.isNotEmpty()) {
+                            currentContact = parts[0] // broj ili ime
+                            updateNotification()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }, 3000)
     }
 
     private fun showBubble() {
@@ -184,14 +240,7 @@ class OverlayBubbleService : Service() {
                     }
                     MotionEvent.ACTION_UP -> {
                         if (!moved) {
-                            isRecording = !isRecording
-                            if (isRecording) {
-                                bubbleIcon.setImageResource(R.drawable.ic_mic_recording)
-                                Toast.makeText(this@OverlayBubbleService, "Recording started", Toast.LENGTH_SHORT).show()
-                            } else {
-                                bubbleIcon.setImageResource(R.drawable.ic_mic_idle)
-                                Toast.makeText(this@OverlayBubbleService, "Recording stopped", Toast.LENGTH_SHORT).show()
-                            }
+                            toggleRecording()
                         } else {
                             prefs.edit()
                                 .putInt("last_x", params.x)
@@ -215,7 +264,6 @@ class OverlayBubbleService : Service() {
             bubbleView = null
             isRunning = false
         }
-        handler.removeCallbacks(callChecker) // stop polling
         stopForeground(true)
         stopSelf()
     }
