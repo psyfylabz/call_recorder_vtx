@@ -82,7 +82,10 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     }
 
     final totalMs = _duration!.inMilliseconds.toDouble();
-    final posMs = _position.inMilliseconds.toDouble();
+    final posMs = _position.inMilliseconds.toDouble().clamp(0, totalMs).toDouble();
+
+    // Fallback: ako highlightEnd > duration, skrati ga
+    final safeEnd = (_highlightEnd > _duration!) ? _duration! : _highlightEnd;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -95,7 +98,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
             trackHeight: 4,
           ),
           child: Slider(
-            value: posMs.clamp(0, totalMs),
+            value: posMs,
             min: 0,
             max: totalMs,
             onChanged: (val) async {
@@ -114,14 +117,14 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
               _fmt(_position),
               style: TextStyle(
                 color: (_position >= _highlightStart &&
-                        _position <= _highlightEnd)
+                        _position <= safeEnd)
                     ? Colors.orange
                     : Colors.white,
                 fontSize: 12,
               ),
             ),
             Text(
-              "${_fmt(_highlightStart)} - ${_fmt(_highlightEnd)}",
+              "${_fmt(_highlightStart)} - ${_fmt(safeEnd)}",
               style: const TextStyle(color: Colors.orange, fontSize: 12),
             ),
           ],
