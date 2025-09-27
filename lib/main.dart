@@ -31,6 +31,7 @@ class Recording {
   bool showDone;
   String? notes;
   bool fromProcessing;
+  bool pinned; // 🔹 dodato
 
   Recording({
     required this.title,
@@ -40,6 +41,7 @@ class Recording {
     this.showDone = false,
     this.notes,
     this.fromProcessing = true,
+    this.pinned = false, // 🔹 default false
   });
 }
 
@@ -260,32 +262,53 @@ class _RecordingsScreenState extends State<RecordingsScreen>
 
   Widget buildList(Map<String, List<Recording>> grouped,
       {required bool isProcessing, bool isSearch = false}) {
-    return ListView(
-      children: grouped.entries
-          .where((entry) => entry.value.isNotEmpty)
-          .map((entry) {
-        final date = entry.key;
-        final items = entry.value;
+    // 🔹 prvo odvajamo pinovane
+    final pinnedItems = <Recording>[];
+    for (var entry in grouped.entries) {
+      for (var rec in entry.value) {
+        if (rec.pinned) pinnedItems.add(rec);
+      }
+    }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              color: Colors.grey[900],
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(date,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey)),
-            ),
-            ...items.map((rec) {
-              final effectiveProcessing =
-                  isSearch ? rec.fromProcessing : isProcessing;
-              return _buildItem(rec, date, items, effectiveProcessing);
-            }),
-          ],
-        );
-      }).toList(),
+    return ListView(
+      children: [
+        if (pinnedItems.isNotEmpty) ...[
+          Container(
+            color: Colors.grey[850],
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: const Text("Pinned",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.orange)),
+          ),
+          ...pinnedItems.map((rec) =>
+            _buildItem(rec, rec.date, grouped[rec.date] ?? [], isProcessing)),
+        ],
+
+        // ostatak grupe
+        ...grouped.entries
+            .where((entry) =>
+                entry.value.any((rec) => !rec.pinned)) // skip pinovane
+            .map((entry) {
+          final date = entry.key;
+          final items = entry.value.where((r) => !r.pinned).toList();
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                color: Colors.grey[900],
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(date,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.grey)),
+              ),
+              ...items.map((rec) => _buildItem(rec, date, entry.value, isProcessing)),
+            ],
+          );
+        }).toList(),
+      ],
     );
   }
 
@@ -326,19 +349,26 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                       icon: const Icon(Icons.more_vert, color: Colors.grey),
                       onSelected: (value) {
                         setState(() {
-                          if (value == "delete") {
+                          if (value == "pin") {
+                            rec.pinned = true;
+                          } else if (value == "unpin") {
+                            rec.pinned = false;
+                          } else if (value == "delete") {
                             items.remove(rec);
                           } else if (value == "add_notes") {
                             _showNotesDialog(rec);
                           } else if (value == "move_to_complete") {
                             complete.putIfAbsent(date, () => []);
-                            complete[date]!
-                                .add(rec..fromProcessing = false);
+                            complete[date]!.add(rec..fromProcessing = false);
                             items.remove(rec);
                           }
                         });
                       },
                       itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: rec.pinned ? "unpin" : "pin",
+                          child: Text(rec.pinned ? "Unpin this" : "Pin this"),
+                        ),
                         const PopupMenuItem(
                           value: "delete",
                           child: Text("Delete"),
@@ -352,12 +382,17 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                           child: Text("Move to Complete"),
                         ),
                       ],
-                    ))
+                    )
+                  )
               : PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, color: Colors.grey),
                   onSelected: (value) {
                     setState(() {
-                      if (value == "delete") {
+                      if (value == "pin") {
+                        rec.pinned = true;
+                      } else if (value == "unpin") {
+                        rec.pinned = false;
+                      } else if (value == "delete") {
                         items.remove(rec);
                       } else if (value == "add_notes") {
                         _showNotesDialog(rec);
@@ -369,6 +404,10 @@ class _RecordingsScreenState extends State<RecordingsScreen>
                     });
                   },
                   itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: rec.pinned ? "unpin" : "pin",
+                      child: Text(rec.pinned ? "Unpin this" : "Pin this"),
+                    ),
                     const PopupMenuItem(
                       value: "delete",
                       child: Text("Delete"),
