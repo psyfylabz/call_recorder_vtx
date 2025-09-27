@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'recording_overlay.dart';
 import 'recording.dart';
 import 'recording_player.dart';
+import 'package:intl/intl.dart';
 
 void main() {
   runApp(const CallRecorderApp());
@@ -20,6 +21,10 @@ class CallRecorderApp extends StatelessWidget {
     return MaterialApp(
       title: "Call Recorder VTX",
       theme: ThemeData.dark().copyWith(
+          popupMenuTheme: const PopupMenuThemeData(
+          elevation: 4,
+          textStyle: TextStyle(color: Colors.white),
+        ),
         primaryColor: Colors.green,
         scaffoldBackgroundColor: Colors.black,
       ),
@@ -257,22 +262,29 @@ class _RecordingsScreenState extends State<RecordingsScreen>
           ),
           ...pinnedItems.map((rec) => _buildItem(rec, rec.date, recordings)),
         ],
+
         ...grouped.entries.map((entry) {
-          final date = entry.key;
+          final dateStr = entry.key; // npr. "2025-09-07"
+          String prettyDate = dateStr;
+          try {
+            final parsed = DateTime.parse(dateStr);
+            prettyDate = DateFormat('EEEE d MMMM yyyy').format(parsed);
+          } catch (_) {}
+
           final items = entry.value;
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 color: Colors.grey[900],
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(date,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(prettyDate,
                     style: const TextStyle(
                         fontWeight: FontWeight.bold, color: Colors.grey)),
               ),
-              ...items.map((rec) => _buildItem(rec, date, recordings)),
+              ...items.map((rec) => _buildItem(rec, dateStr, recordings)),
             ],
           );
         }).toList(),
@@ -283,53 +295,82 @@ class _RecordingsScreenState extends State<RecordingsScreen>
   Widget _buildItem(Recording rec, String date, List<Recording> items) {
     final isProcessing = rec.status == "processing";
 
+    // vreme poziva iz id-a (drugi segment)
+    String callTime = "";
+    final parts = rec.id.split("_");
+    if (parts.length >= 2) {
+      final t = parts[1]; // npr. 103917
+      if (t.length == 6) {
+        callTime = "${t.substring(0, 2)}:${t.substring(2, 4)}"; // HH:mm bez sekundi
+      }
+    }
+
     return Column(
       children: [
         ListTile(
-          leading: Icon(
-            rec.expanded ? Icons.pause_circle : Icons.play_circle_fill,
-            color: isProcessing ? Colors.green : Colors.orange,
+          leading: CircleAvatar(
+            backgroundColor: isProcessing ? Colors.green : Colors.orange,
+            child: Icon(
+              rec.highlightOffset == 0 ? Icons.mic : Icons.call,
+              color: Colors.white,
+            ),
           ),
-          title: Text(rec.title),
-          subtitle: Text(rec.notes != null ? "Notes: ${rec.notes}" : ""),
-          trailing: PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.grey),
-            onSelected: (value) {
-              setState(() {
-                if (value == "pin") {
-                  rec.pinned = true;
-                } else if (value == "unpin") {
-                  rec.pinned = false;
-                } else if (value == "delete") {
-                  items.remove(rec);
-                  File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json").delete();
-                } else if (value == "add_notes") {
-                  _showNotesDialog(rec);
-                } else if (value == "move_to_complete") {
-                  rec.status = "complete";
-                } else if (value == "restore") {
-                  rec.status = "processing";
-                }
-                File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json")
-                    .writeAsStringSync(jsonEncode(rec.toJson()));
-              });
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: rec.pinned ? "unpin" : "pin",
-                child: Text(rec.pinned ? "Unpin this" : "Pin this"),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  rec.title,
+                  style: const TextStyle(color: Colors.white),
+                ),
               ),
-              const PopupMenuItem(value: "delete", child: Text("Delete")),
-              const PopupMenuItem(value: "add_notes", child: Text("Add notes")),
-              if (isProcessing)
-                const PopupMenuItem(
-                  value: "move_to_complete",
-                  child: Text("Move to Complete"),
-                )
-              else
-                const PopupMenuItem(value: "restore", child: Text("Restore")),
+              Text(
+                callTime.substring(0, 5), // prikaz HH:mm bez sekundi
+                style: const TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.grey),
+                onSelected: (value) {
+                  setState(() {
+                    if (value == "pin") {
+                      rec.pinned = true;
+                    } else if (value == "unpin") {
+                      rec.pinned = false;
+                    } else if (value == "delete") {
+                      items.remove(rec);
+                      File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json").delete();
+                    } else if (value == "add_notes") {
+                      _showNotesDialog(rec);
+                    } else if (value == "move_to_complete") {
+                      rec.status = "complete";
+                    } else if (value == "restore") {
+                      rec.status = "processing";
+                    }
+                    File("/storage/emulated/0/Recordings/VTX Files/Data/${rec.id}.json")
+                        .writeAsStringSync(jsonEncode(rec.toJson()));
+                  });
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: rec.pinned ? "unpin" : "pin",
+                    child: Text(rec.pinned ? "Unpin this" : "Pin this"),
+                  ),
+                  const PopupMenuItem(value: "delete", child: Text("Delete")),
+                  const PopupMenuItem(value: "add_notes", child: Text("Add notes")),
+                  if (isProcessing)
+                    const PopupMenuItem(
+                      value: "move_to_complete",
+                      child: Text("Move to Complete"),
+                    )
+                  else
+                    const PopupMenuItem(value: "restore", child: Text("Restore")),
+                ],
+              ),
             ],
           ),
+          subtitle: rec.notes != null && rec.notes!.isNotEmpty
+              ? Text("Notes: ${rec.notes}")
+              : null,
           onTap: () {
             setState(() {
               if (_expandedRec == rec) {
