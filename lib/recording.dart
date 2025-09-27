@@ -1,14 +1,18 @@
 class Recording {
   final String id;
   String title;
-  String date; // YYYY-MM-DD
-  String duration; // "mm:ss" highlight trajanje
-  String path; // putanja do Samsung audio fajla
+  String date;
+  String duration;
+  String path;
   String status; // "processing" | "complete"
   bool pinned;
   String? notes;
-  DateTime highlightStart;
-  DateTime highlightEnd;
+  Duration highlightStart;
+  Duration highlightEnd;
+
+  // UI state
+  bool expanded;
+  bool showDone;
 
   Recording({
     required this.id,
@@ -21,9 +25,28 @@ class Recording {
     this.notes,
     required this.highlightStart,
     required this.highlightEnd,
+    this.expanded = false,
+    this.showDone = false,
   });
 
   factory Recording.fromJson(Map<String, dynamic> json) {
+    // start snimka iz ID-a, npr: 250926_140459_140500
+    final parts = (json["id"] as String).split("_");
+    final datePart = parts[0]; // 250926
+    final startPart = parts[1]; // 140459
+
+    final fileStart = DateTime(
+      2000 + int.parse(datePart.substring(0, 2)), // 25 -> 2025
+      int.parse(datePart.substring(2, 4)),       // 09
+      int.parse(datePart.substring(4, 6)),       // 26
+      int.parse(startPart.substring(0, 2)),      // 14
+      int.parse(startPart.substring(2, 4)),      // 04
+      int.parse(startPart.substring(4, 6)),      // 59
+    );
+
+    final startDt = DateTime.parse(json["highlighted"]["start"]);
+    final endDt   = DateTime.parse(json["highlighted"]["end"]);
+
     return Recording(
       id: json["id"],
       title: json["title"],
@@ -33,12 +56,17 @@ class Recording {
       status: json["status"],
       pinned: json["pinned"] ?? false,
       notes: json["notes"],
-      highlightStart: DateTime.parse(json["highlighted"]["start"]),
-      highlightEnd: DateTime.parse(json["highlighted"]["end"]),
+      highlightStart: startDt.difference(fileStart),
+      highlightEnd: endDt.difference(fileStart),
     );
   }
 
+
   Map<String, dynamic> toJson() {
+    final base = DateTime.parse("${date}T00:00:00");
+    final start = base.add(highlightStart);
+    final end = base.add(highlightEnd);
+
     return {
       "id": id,
       "title": title,
@@ -49,8 +77,8 @@ class Recording {
       "pinned": pinned,
       "notes": notes,
       "highlighted": {
-        "start": highlightStart.toIso8601String(),
-        "end": highlightEnd.toIso8601String(),
+        "start": start.toIso8601String(),
+        "end": end.toIso8601String(),
       },
     };
   }

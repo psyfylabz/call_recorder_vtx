@@ -374,29 +374,16 @@ class _RecordingsScreenState extends State<RecordingsScreen>
         if (rec.expanded)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.stop, color: Colors.red),
-                  onPressed: () {
-                    setState(() {
-                      rec.expanded = false;
-                      _expandedRec = null;
-                    });
-                  },
-                ),
-               RecordingPlayer(rec: rec),
-              ],
-            ),
+            child: RecordingPlayer(rec: rec),
           ),
-        const Divider(
-          thickness: 0.5,
-          height: 1,
-          color: Colors.grey,
-        ),
-      ],
-    );
-  }
+                const Divider(
+                  thickness: 0.5,
+                  height: 1,
+                  color: Colors.grey,
+                ),
+              ],
+            );
+          }
 
   void _showNotesDialog(Recording rec) {
     final controller = TextEditingController(text: rec.notes ?? "");

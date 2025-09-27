@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:intl/intl.dart';
-import 'recording.dart'; // tvoj Recording model
+import 'recording.dart';
 
 class RecordingPlayer extends StatefulWidget {
   final Recording rec;
@@ -18,35 +17,48 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   Duration _position = Duration.zero;
   bool _isReady = false;
 
-  Duration get _highlightStart =>
-      widget.rec.highlightStart.difference(DateTime.parse("${widget.rec.date}T00:00:00"));
-  Duration get _highlightEnd =>
-      widget.rec.highlightEnd.difference(DateTime.parse("${widget.rec.date}T00:00:00"));
-
   @override
   void initState() {
     super.initState();
+    _player = AudioPlayer();
     _init();
   }
 
   Future<void> _init() async {
-    _player = AudioPlayer();
     try {
       await _player.setFilePath(widget.rec.path);
-      _duration = await _player.durationFuture;
-      _isReady = true;
 
-      // seek odmah na highlightStart
-      await _player.seek(_highlightStart);
-      setState(() {});
+      // slušaj trajanje iz streama
+      _player.durationStream.listen((dur) {
+        if (dur != null && mounted) {
+          setState(() {
+            _duration = dur;
+            _isReady = true;
+          });
+        }
+      });
+
+      // odmah jump na highlight start i postavi poziciju
+      await _player.seek(widget.rec.highlightStart);
+      setState(() {
+        _position = widget.rec.highlightStart;
+      });
+
+      // autoplay
+      await _player.play();
     } catch (e) {
-      print("❌ Player error: $e");
+      debugPrint("❌ Player error: $e");
     }
 
     _player.positionStream.listen((pos) {
-      setState(() {
-        _position = pos;
-      });
+      if (mounted) {
+        setState(() {
+          _position = pos;
+          if (_position >= widget.rec.highlightEnd) {
+            _player.pause();
+          }
+        });
+      }
     });
   }
 
@@ -57,26 +69,27 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   }
 
   String _formatTime(Duration d) {
-    final ms = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return "$ms:$ss";
+    return "$mm:$ss";
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isReady) {
-      return const Text("Loading audio...", style: TextStyle(color: Colors.grey));
+    if (!_isReady || _duration == null) {
+      return const Text("Loading audio...",
+          style: TextStyle(color: Colors.grey));
     }
 
-    final total = _duration ?? Duration.zero;
-    final highlightStart = _highlightStart.inMilliseconds.toDouble();
-    final highlightEnd = _highlightEnd.inMilliseconds.toDouble();
-
-    final pos = _position.inMilliseconds.toDouble().clamp(0, total.inMilliseconds.toDouble());
+    final totalMs = _duration!.inMilliseconds.toDouble();
+    final posMs = _position.inMilliseconds.toDouble();
+    final startMs = widget.rec.highlightStart.inMilliseconds.toDouble();
+    final endMs = widget.rec.highlightEnd.inMilliseconds.toDouble();
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Seek bar sa highlight overlay
+        // Slider sa narandžastim highlight overlayem
         Stack(
           children: [
             SliderTheme(
@@ -87,55 +100,69 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
                 trackHeight: 4,
               ),
               child: Slider(
-                value: pos,
+                value: posMs.clamp(0, totalMs),
                 min: 0,
-                max: total.inMilliseconds.toDouble(),
+                max: totalMs,
                 onChanged: (val) async {
                   final newPos = Duration(milliseconds: val.toInt());
                   await _player.seek(newPos);
+                  setState(() => _position = newPos);
                 },
               ),
             ),
+            // overlay highlight deo
             Positioned.fill(
               child: IgnorePointer(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final startPercent = highlightStart / total.inMilliseconds;
-                    final endPercent = highlightEnd / total.inMilliseconds;
+                    final startPercent = startMs / totalMs;
+                    final endPercent = endMs / totalMs;
 
-                    return Row(
+                    final left = constraints.maxWidth * startPercent;
+                    final width = constraints.maxWidth * (endPercent - startPercent);
+
+                    return Stack(
                       children: [
-                        Expanded(flex: (startPercent * 1000).toInt(), child: Container()),
-                        Container(
-                          width: constraints.maxWidth * (endPercent - startPercent),
-                          height: 4,
-                          color: Colors.orange.withOpacity(0.5),
-                        ),
-                        Expanded(
-                          flex: (1000 - (endPercent * 1000).toInt()),
-                          child: Container(),
+                        Positioned(
+                          left: left,
+                          width: width,
+                          top: 0,
+                          bottom: 0,
+                          child: Container(color: Colors.orange.withOpacity(0.4)),
                         ),
                       ],
                     );
                   },
                 ),
               ),
-            )
+            ),
           ],
         ),
 
-        // vreme
+        // Timestamp
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_formatTime(_position), style: const TextStyle(color: Colors.white, fontSize: 12)),
-            Text(_formatTime(total), style: const TextStyle(color: Colors.white, fontSize: 12)),
+            Text(
+              _formatTime(_position),
+              style: TextStyle(
+                color: (_position >= widget.rec.highlightStart &&
+                        _position <= widget.rec.highlightEnd)
+                    ? Colors.orange
+                    : Colors.white,
+                fontSize: 12,
+              ),
+            ),
+            Text(
+              _formatTime(_duration!),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
           ],
         ),
 
-        // kontrole
+        // Kontrole
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             IconButton(
               icon: const Icon(Icons.replay_5, color: Colors.orange),
@@ -150,12 +177,14 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
                 final playing = snapshot.data?.playing ?? false;
                 if (playing) {
                   return IconButton(
-                    icon: const Icon(Icons.pause_circle_filled, color: Colors.green, size: 40),
+                    icon: const Icon(Icons.pause_circle_filled,
+                        color: Colors.green, size: 40),
                     onPressed: () => _player.pause(),
                   );
                 } else {
                   return IconButton(
-                    icon: const Icon(Icons.play_circle_fill, color: Colors.green, size: 40),
+                    icon: const Icon(Icons.play_circle_fill,
+                        color: Colors.green, size: 40),
                     onPressed: () => _player.play(),
                   );
                 }
@@ -176,11 +205,14 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
               icon: const Icon(Icons.stop, color: Colors.red),
               onPressed: () async {
                 await _player.pause();
-                await _player.seek(_highlightStart);
+                await _player.seek(widget.rec.highlightStart);
+                setState(() {
+                  _position = widget.rec.highlightStart;
+                });
               },
             ),
           ],
-        )
+        ),
       ],
     );
   }
