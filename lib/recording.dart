@@ -30,22 +30,27 @@ class Recording {
   });
 
   factory Recording.fromJson(Map<String, dynamic> json) {
-    // start snimka iz ID-a, npr: 250926_140459_140500
+    final startIso = json["highlighted"]["start"] as String;
+    final endIso = json["highlighted"]["end"] as String;
+    final startDt = DateTime.parse(startIso);
+    final endDt = DateTime.parse(endIso);
+
+    // izvuci početak snimka iz ID-a, npr "250926_140459_140500"
     final parts = (json["id"] as String).split("_");
-    final datePart = parts[0]; // 250926
-    final startPart = parts[1]; // 140459
+    final datePart = parts[0]; // "250926"
+    final timePart = parts[1]; // "140459"
 
-    final fileStart = DateTime(
-      2000 + int.parse(datePart.substring(0, 2)), // 25 -> 2025
-      int.parse(datePart.substring(2, 4)),       // 09
-      int.parse(datePart.substring(4, 6)),       // 26
-      int.parse(startPart.substring(0, 2)),      // 14
-      int.parse(startPart.substring(2, 4)),      // 04
-      int.parse(startPart.substring(4, 6)),      // 59
-    );
+    final year = 2000 + int.parse(datePart.substring(0, 2));
+    final month = int.parse(datePart.substring(2, 4));
+    final day = int.parse(datePart.substring(4, 6));
+    final hour = int.parse(timePart.substring(0, 2));
+    final minute = int.parse(timePart.substring(2, 4));
+    final second = int.parse(timePart.substring(4, 6));
 
-    final startDt = DateTime.parse(json["highlighted"]["start"]);
-    final endDt   = DateTime.parse(json["highlighted"]["end"]);
+    final fileStart = DateTime(year, month, day, hour, minute, second);
+
+    final durStart = startDt.difference(fileStart);
+    final durEnd = endDt.difference(fileStart);
 
     return Recording(
       id: json["id"],
@@ -56,16 +61,25 @@ class Recording {
       status: json["status"],
       pinned: json["pinned"] ?? false,
       notes: json["notes"],
-      highlightStart: startDt.difference(fileStart),
-      highlightEnd: endDt.difference(fileStart),
+      highlightStart: durStart.isNegative ? Duration.zero : durStart,
+      highlightEnd: durEnd.isNegative ? Duration.zero : durEnd,
     );
   }
 
-
   Map<String, dynamic> toJson() {
-    final base = DateTime.parse("${date}T00:00:00");
-    final start = base.add(highlightStart);
-    final end = base.add(highlightEnd);
+    // isto parsiranje kao gore
+    final parts = id.split("_");
+    final datePart = parts[0];
+    final timePart = parts[1];
+
+    final year = 2000 + int.parse(datePart.substring(0, 2));
+    final month = int.parse(datePart.substring(2, 4));
+    final day = int.parse(datePart.substring(4, 6));
+    final hour = int.parse(timePart.substring(0, 2));
+    final minute = int.parse(timePart.substring(2, 4));
+    final second = int.parse(timePart.substring(4, 6));
+
+    final fileStart = DateTime(year, month, day, hour, minute, second);
 
     return {
       "id": id,
@@ -77,8 +91,8 @@ class Recording {
       "pinned": pinned,
       "notes": notes,
       "highlighted": {
-        "start": start.toIso8601String(),
-        "end": end.toIso8601String(),
+        "start": fileStart.add(highlightStart).toIso8601String(),
+        "end": fileStart.add(highlightEnd).toIso8601String(),
       },
     };
   }

@@ -106,21 +106,20 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
                 onChanged: (val) async {
                   final newPos = Duration(milliseconds: val.toInt());
                   await _player.seek(newPos);
-                  setState(() => _position = newPos);
+                  setState(() {
+                    _position = newPos;
+                  });
                 },
               ),
             ),
-            // overlay highlight deo
             Positioned.fill(
               child: IgnorePointer(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final startPercent = startMs / totalMs;
                     final endPercent = endMs / totalMs;
-
                     final left = constraints.maxWidth * startPercent;
                     final width = constraints.maxWidth * (endPercent - startPercent);
-
                     return Stack(
                       children: [
                         Positioned(
@@ -138,6 +137,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
             ),
           ],
         ),
+
 
         // Timestamp
         Row(
